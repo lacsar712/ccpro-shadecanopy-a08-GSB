@@ -100,3 +100,40 @@ class IrrigationCycle(models.Model):
 
     def __str__(self):
         return f"Irrig@{self.zone_id} {self.start_at} ({self.status})"
+
+
+class PpeIssue(models.Model):
+    """喷药日防护领用单：挂在温室上，与轮灌互斥（开放期间禁止新建轮灌）。"""
+
+    STATUS_OPEN = "open"
+    STATUS_CLOSED = "closed"
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "开放"),
+        (STATUS_CLOSED, "已关"),
+    ]
+
+    greenhouse = models.ForeignKey(
+        Greenhouse, on_delete=models.CASCADE, related_name="ppe_issues"
+    )
+    work_date = models.DateField()
+    suit_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    mask_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    issuer = models.CharField(max_length=80)
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-work_date", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["greenhouse", "work_date"],
+                condition=models.Q(status="open"),
+                name="uniq_open_ppe_issue_per_greenhouse_day",
+            )
+        ]
+
+    def __str__(self):
+        return f"PPE@{self.greenhouse_id} {self.work_date} ({self.status})"

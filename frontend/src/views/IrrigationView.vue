@@ -28,6 +28,15 @@ const statusLabel = {
   skipped: '已跳过',
 }
 
+function formatError(e, fallback) {
+  const data = e.response?.data
+  if (!data) return fallback
+  if (typeof data === 'string') return data
+  return Object.entries(data)
+    .map(([k, v]) => `${k}: ${[].concat(v).join('；')}`)
+    .join('；')
+}
+
 function resetForm() {
   editingId.value = null
   form.zoneId = zones.value[0]?.id || ''
@@ -82,7 +91,7 @@ async function save() {
     resetForm()
     await load()
   } catch (e) {
-    error.value = JSON.stringify(e.response?.data || '保存失败')
+    error.value = formatError(e, '保存失败')
   }
 }
 

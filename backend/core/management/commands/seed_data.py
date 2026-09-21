@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import ClimateLog, Greenhouse, IrrigationCycle, PpeIssue, Zone
 
 User = get_user_model()
 
@@ -44,6 +44,7 @@ class Command(BaseCommand):
 
         if Greenhouse.objects.exists():
             self.stdout.write("温室数据已存在，跳过业务种子写入。")
+            self._seed_open_ppe_issue()
             return
 
         g1 = Greenhouse.objects.create(
@@ -162,9 +163,31 @@ class Command(BaseCommand):
             ]
         )
 
+        self._seed_open_ppe_issue()
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
-                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}，"
+                f"防护领用 {PpeIssue.objects.count()}"
             )
+        )
+
+    def _seed_open_ppe_issue(self):
+        """保证至少一张开放的喷药日防护领用单（挂在最早的温室上）。"""
+        if PpeIssue.objects.exists():
+            return
+        gh = Greenhouse.objects.order_by("id").first()
+        if gh is None:
+            return
+        PpeIssue.objects.create(
+            greenhouse=gh,
+            work_date=timezone.now().date(),
+            suit_count=6,
+            mask_count=12,
+            issuer="王守棚",
+            status=PpeIssue.STATUS_OPEN,
+        )
+        self.stdout.write(
+            self.style.SUCCESS(f"防护领用种子：{gh.name} 本日开放单 1 张")
         )

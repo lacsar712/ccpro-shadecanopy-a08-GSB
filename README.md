@@ -1,6 +1,6 @@
 # ShadeCanopy-01 · 分区气候日志与轮灌计划
 
-温室「分区气候日志与轮灌计划」全栈种子项目（非考勤 OA、非库存）。
+温室「分区气候日志与轮灌计划」全栈种子项目（非考勤 OA、非库存），含喷药日防护领用及其与轮灌的互斥控制。
 
 ## 技术栈
 
@@ -25,7 +25,7 @@
 | `admin` | `123456` | admin（管理员，可进 Django Admin） |
 | `grower` | `123456` | grower（种植员） |
 
-启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据。
+启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据（含一张挂在「东坡一号棚」的当日开放防护领用单，可直接体验领用 ⇄ 轮灌互斥）。
 
 ## 快速启动
 
@@ -45,11 +45,22 @@ docker compose down
 ## 业务模块
 
 1. **Auth**：JWT `POST /api/auth/token/`，当前用户 `GET /api/auth/me/`
-2. **Greenhouse**：name / location / areaM2 / notes
+2. **Greenhouse**：name / location / areaM2 / notes；列表每行带 `hasOpenPpeIssue`（是否有开放防护领用）
 3. **Zone**：greenhouseId / zoneCode / cropName / status(`idle|growing|fallow`)；同温室 zoneCode 唯一
 4. **ClimateLog**：zoneId / recordedAt / tempC / humidityPct / parUmol / co2Ppm；**humidityPct ∈ [20, 100]**
 5. **IrrigationCycle**：zoneId / startAt / durationMin / waterLiters / status(`scheduled|running|done|skipped`)
-6. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数 → `GET /api/dashboard/`
+6. **PpeIssue（喷药日防护领用）**：greenhouseId / workDate / suitCount / maskCount / issuer / status(`open|closed`)
+7. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数、开放防护领用温室数 → `GET /api/dashboard/`
+
+## 防护领用业务规则
+
+- **字段**：所属温室、作业日、防护服件数、口罩件数、发放人、状态（`open` 开放 / `closed` 已关）。
+- **件数**：防护服与口罩件数均为正整数（≥1）。
+- **开放唯一**：同一温室同一作业日只允许一张开放单（数据库部分唯一约束 + 接口校验双保险）。
+- **已关锁量**：领用单关闭后禁止修改防护服/口罩件数。
+- **领用 ⇄ 轮灌互斥**：温室存在开放领用单时，其下属全部分区**禁止新建轮灌**；领用单关闭后自动恢复。拦截只针对新建，已有轮灌记录的编辑/删除不受影响。
+- **判定同口径**：轮灌拦截、温室列表 `hasOpenPpeIssue` 标记、开放核对接口与看板统计全部走 `core/rules.py` 的同一判定，总数必然一致。
+- **开放核对**：`GET /api/ppe-issues/open-check/` 返回 `openGreenhouseCount` 与 `greenhouseIds`，与温室列表中 `hasOpenPpeIssue=true` 的行数一致。
 
 ## API 一览
 
@@ -62,6 +73,8 @@ docker compose down
 | CRUD | `/api/zones/?greenhouseId=&status=` |
 | CRUD | `/api/climate-logs/?zoneId=` |
 | CRUD | `/api/irrigation-cycles/?zoneId=&status=` |
+| CRUD | `/api/ppe-issues/?greenhouseId=&status=` |
+| GET | `/api/ppe-issues/open-check/` |
 | GET | `/api/dashboard/` |
 
 字段对外使用 camelCase（如 `areaM2`、`zoneCode`、`humidityPct`）。
@@ -104,7 +117,7 @@ ShadeCanopy-01/
 │   ├── manage.py
 │   ├── config/            # settings / urls
 │   ├── accounts/          # 自定义 User + role
-│   └── core/              # 温室/分区/气候/轮灌 + seed_data
+│   └── core/              # 温室/分区/气候/轮灌/防护领用 + seed_data
 └── frontend/
     ├── Dockerfile
     ├── nginx.conf         # 静态资源 + /api 反代

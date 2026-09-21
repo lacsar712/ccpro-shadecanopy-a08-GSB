@@ -101,6 +101,7 @@ onMounted(load)
             <th>位置</th>
             <th>面积 m²</th>
             <th>分区数</th>
+            <th>开放防护领用</th>
             <th>备注</th>
             <th>操作</th>
           </tr>
@@ -112,6 +113,11 @@ onMounted(load)
             <td>{{ row.location }}</td>
             <td>{{ row.areaM2 }}</td>
             <td>{{ row.zoneCount }}</td>
+            <td>
+              <span class="badge" :class="row.hasOpenPpeIssue ? 'running' : ''">
+                {{ row.hasOpenPpeIssue ? '有开放单' : '无' }}
+              </span>
+            </td>
             <td>{{ row.notes }}</td>
             <td class="actions">
               <button class="btn ghost" @click="edit(row)">编辑</button>
