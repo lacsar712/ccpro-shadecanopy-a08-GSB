@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import ClimateLog, Greenhouse, IrrigationCycle, PpeIssue, Zone
 
 User = get_user_model()
 
@@ -162,9 +162,20 @@ class Command(BaseCommand):
             ]
         )
 
+        # 一张开放领用单：东坡一号棚今日喷药，其分区在关闭前禁止新建轮灌
+        PpeIssue.objects.create(
+            greenhouse=g1,
+            work_date=now.date(),
+            suit_count=4,
+            mask_count=8,
+            issuer="张工",
+            status=PpeIssue.STATUS_OPEN,
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
-                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}，"
+                f"防护领用 {PpeIssue.objects.count()}"
             )
         )

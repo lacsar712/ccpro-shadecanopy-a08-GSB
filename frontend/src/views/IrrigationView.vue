@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 
 const list = ref([])
 const zones = ref([])
+const greenhouses = ref([])
 const error = ref('')
 const editingId = ref(null)
 const filterStatus = ref('')
@@ -28,6 +29,15 @@ const statusLabel = {
   skipped: '已跳过',
 }
 
+// 与后端互斥判定一致：温室存在开放防护领用时，其分区禁止新建轮灌
+const blockedGreenhouseIds = computed(
+  () => new Set(greenhouses.value.filter((g) => g.hasOpenPpeIssue).map((g) => g.id))
+)
+const selectedZoneBlocked = computed(() => {
+  const zone = zones.value.find((z) => z.id === Number(form.zoneId))
+  return !!zone && blockedGreenhouseIds.value.has(zone.greenhouseId)
+})
+
 function resetForm() {
   editingId.value = null
   form.zoneId = zones.value[0]?.id || ''
@@ -41,6 +51,11 @@ async function loadZones() {
   const { data } = await api.get('/zones/')
   zones.value = data.results || data
   if (!form.zoneId && zones.value.length) form.zoneId = zones.value[0].id
+}
+
+async function loadGreenhouses() {
+  const { data } = await api.get('/greenhouses/')
+  greenhouses.value = data.results || data
 }
 
 async function load() {
@@ -93,7 +108,7 @@ async function remove(id) {
 }
 
 onMounted(async () => {
-  await loadZones()
+  await Promise.all([loadZones(), loadGreenhouses()])
   await load()
 })
 </script>
@@ -140,9 +155,12 @@ onMounted(async () => {
           </select>
         </label>
       </div>
+      <p v-if="!editingId && selectedZoneBlocked" class="error" style="margin:8px 0 0">
+        该分区所属温室存在开放的防护领用单，喷药作业期间禁止新建轮灌；领用单关闭后恢复。
+      </p>
       <p v-if="error" class="error">{{ error }}</p>
       <div class="actions" style="margin-top:12px">
-        <button class="btn" @click="save">保存</button>
+        <button class="btn" :disabled="!editingId && selectedZoneBlocked" @click="save">保存</button>
         <button v-if="editingId" class="btn ghost" @click="resetForm">取消编辑</button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .models import ClimateLog, Greenhouse, IrrigationCycle, PpeIssue, Zone
 
 
 class GreenhouseSerializer(serializers.ModelSerializer):
@@ -8,6 +8,7 @@ class GreenhouseSerializer(serializers.ModelSerializer):
         source="area_m2", max_digits=10, decimal_places=2
     )
     zoneCount = serializers.SerializerMethodField()
+    hasOpenPpeIssue = serializers.SerializerMethodField()
 
     class Meta:
         model = Greenhouse
@@ -18,15 +19,28 @@ class GreenhouseSerializer(serializers.ModelSerializer):
             "areaM2",
             "notes",
             "zoneCount",
+            "hasOpenPpeIssue",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "zoneCount", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "zoneCount",
+            "hasOpenPpeIssue",
+            "created_at",
+            "updated_at",
+        )
 
     def get_zoneCount(self, obj):
         if hasattr(obj, "zone_count"):
             return obj.zone_count
         return obj.zones.count()
+
+    def get_hasOpenPpeIssue(self, obj):
+        # 与轮灌拦截、开放核对共用 PpeIssue.open_issues() 判定
+        if hasattr(obj, "has_open_ppe_issue"):
+            return obj.has_open_ppe_issue
+        return PpeIssue.has_open_for_greenhouse(obj.id)
 
 
 class ZoneSerializer(serializers.ModelSerializer):
@@ -142,3 +156,80 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def validate(self, attrs):
+        # 互斥：温室存在开放防护领用时，其分区禁止新建轮灌（关闭后恢复）
+        if self.instance is None:
+            zone = attrs.get("zone")
+            if zone and PpeIssue.has_open_for_greenhouse(zone.greenhouse_id):
+                raise serializers.ValidationError(
+                    {"zoneId": "该温室存在开放的喷药防护领用单，喷药作业期间禁止新建轮灌"}
+                )
+        return attrs
+
+
+class PpeIssueSerializer(serializers.ModelSerializer):
+    greenhouseId = serializers.PrimaryKeyRelatedField(
+        source="greenhouse", queryset=Greenhouse.objects.all()
+    )
+    workDate = serializers.DateField(source="work_date")
+    suitCount = serializers.IntegerField(source="suit_count", min_value=1)
+    maskCount = serializers.IntegerField(source="mask_count", min_value=1)
+    greenhouseName = serializers.CharField(
+        source="greenhouse.name", read_only=True
+    )
+
+    class Meta:
+        model = PpeIssue
+        fields = (
+            "id",
+            "greenhouseId",
+            "greenhouseName",
+            "workDate",
+            "suitCount",
+            "maskCount",
+            "issuer",
+            "status",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "greenhouseName", "created_at", "updated_at")
+        # 关闭 DRF 由条件唯一约束自动生成的校验器，统一走下方 validate() 的中文提示
+        validators = []
+
+    def validate_suitCount(self, value):
+        if value < 1:
+            raise serializers.ValidationError("防护服件数须为正整数")
+        return value
+
+    def validate_maskCount(self, value):
+        if value < 1:
+            raise serializers.ValidationError("口罩件数须为正整数")
+        return value
+
+    def validate(self, attrs):
+        instance = self.instance
+        # 已关单禁止改数量
+        if instance and instance.status == PpeIssue.STATUS_CLOSED:
+            for field, label in (("suitCount", "防护服件数"), ("maskCount", "口罩件数")):
+                model_field = self.fields[field].source
+                if model_field in attrs and attrs[model_field] != getattr(instance, model_field):
+                    raise serializers.ValidationError(
+                        {field: f"领用单已关闭，{label}禁止修改"}
+                    )
+
+        greenhouse = attrs.get("greenhouse") or getattr(instance, "greenhouse", None)
+        work_date = attrs.get("work_date") or getattr(instance, "work_date", None)
+        status = attrs.get("status") or getattr(instance, "status", None)
+        # 同温室同日只许一张开放单（与数据库部分唯一约束一致）
+        if greenhouse and work_date and status == PpeIssue.STATUS_OPEN:
+            qs = PpeIssue.open_issues().filter(
+                greenhouse=greenhouse, work_date=work_date
+            )
+            if instance:
+                qs = qs.exclude(pk=instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"workDate": "同一温室同一作业日只允许一张开放领用单"}
+                )
+        return attrs

@@ -25,7 +25,7 @@
 | `admin` | `123456` | admin（管理员，可进 Django Admin） |
 | `grower` | `123456` | grower（种植员） |
 
-启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据。
+启动时 `entrypoint.sh` 会执行 `migrate` + `seed_data` 自动写入账号与示例业务数据（含一张东坡一号棚当日的**开放**防护领用单，用于演示轮灌互斥拦截）。
 
 ## 快速启动
 
@@ -45,11 +45,17 @@ docker compose down
 ## 业务模块
 
 1. **Auth**：JWT `POST /api/auth/token/`，当前用户 `GET /api/auth/me/`
-2. **Greenhouse**：name / location / areaM2 / notes
+2. **Greenhouse**：name / location / areaM2 / notes；列表每行带 `hasOpenPpeIssue`（是否存在开放防护领用）
 3. **Zone**：greenhouseId / zoneCode / cropName / status(`idle|growing|fallow`)；同温室 zoneCode 唯一
 4. **ClimateLog**：zoneId / recordedAt / tempC / humidityPct / parUmol / co2Ppm；**humidityPct ∈ [20, 100]**
 5. **IrrigationCycle**：zoneId / startAt / durationMin / waterLiters / status(`scheduled|running|done|skipped`)
-6. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数 → `GET /api/dashboard/`
+6. **PpeIssue（喷药日防护领用）**：greenhouseId / workDate / suitCount / maskCount / issuer / status(`open|closed`)
+   - `suitCount`、`maskCount` 均为**正整数**（≥1）
+   - **同一温室同一作业日只允许一张开放单**（数据库部分唯一约束 + 接口校验）
+   - 领用单**关闭后数量禁止再改**
+   - **互斥**：温室存在开放领用单时，其下属全部分区**禁止新建轮灌**；领用单关闭后恢复
+   - 拦截、温室列表标记、开放核对三处共用同一开放判定（`PpeIssue.open_issues()`）
+7. **Dashboard**：温室数、growing 分区数、近 24h 气候日志数、今日 scheduled 轮灌数 → `GET /api/dashboard/`
 
 ## API 一览
 
@@ -58,13 +64,17 @@ docker compose down
 | POST | `/api/auth/token/` |
 | POST | `/api/auth/token/refresh/` |
 | GET | `/api/auth/me/` |
-| CRUD | `/api/greenhouses/` |
+| CRUD | `/api/greenhouses/`（含 `hasOpenPpeIssue`） |
 | CRUD | `/api/zones/?greenhouseId=&status=` |
 | CRUD | `/api/climate-logs/?zoneId=` |
 | CRUD | `/api/irrigation-cycles/?zoneId=&status=` |
+| CRUD | `/api/ppe-issues/?greenhouseId=&status=&workDate=` |
+| GET | `/api/ppe-issues/open-check/`（开放核对：`openIssueCount` / `openGreenhouseCount` / `greenhouseIds`） |
 | GET | `/api/dashboard/` |
 
-字段对外使用 camelCase（如 `areaM2`、`zoneCode`、`humidityPct`）。
+字段对外使用 camelCase（如 `areaM2`、`zoneCode`、`humidityPct`、`workDate`、`suitCount`）。
+
+温室列表中 `hasOpenPpeIssue=true` 的行数与 `open-check` 的 `openGreenhouseCount` 必然一致（同一判定来源）。
 
 ## 本地开发（可选）
 
@@ -104,7 +114,7 @@ ShadeCanopy-01/
 │   ├── manage.py
 │   ├── config/            # settings / urls
 │   ├── accounts/          # 自定义 User + role
-│   └── core/              # 温室/分区/气候/轮灌 + seed_data
+│   └── core/              # 温室/分区/气候/轮灌/防护领用 + seed_data
 └── frontend/
     ├── Dockerfile
     ├── nginx.conf         # 静态资源 + /api 反代

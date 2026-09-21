@@ -52,7 +52,9 @@ onMounted(async () => {
       <h3 style="margin-top:0;color:var(--earth-deep)">业务说明</h3>
       <p style="color:var(--muted);margin:0;line-height:1.7">
         本系统面向温室「分区气候日志与轮灌计划」，不涉及考勤 OA 或库存出入库。
-        可在侧栏进入温室、分区、气候与轮灌模块进行 CRUD 操作。
+        可在侧栏进入温室、分区、气候、轮灌与防护领用模块进行 CRUD 操作。
+        喷药日防护领用单开放期间，所属温室的全部分区禁止新建轮灌，领用单关闭后恢复；
+        同一温室同一作业日只允许一张开放领用单。
       </p>
     </div>
   </div>

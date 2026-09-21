@@ -305,6 +305,20 @@ textarea:focus {
   background: #edd9d4;
   color: var(--danger);
 }
+.badge.open {
+  background: #f3e4c8;
+  color: var(--earth-deep);
+}
+.badge.closed {
+  background: #e8e2d8;
+  color: var(--muted);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .error {
   color: var(--danger);

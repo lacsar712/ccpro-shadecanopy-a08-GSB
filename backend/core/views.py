@@ -1,23 +1,34 @@
 from datetime import timedelta
 
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 from rest_framework import viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .models import ClimateLog, Greenhouse, IrrigationCycle, PpeIssue, Zone
 from .serializers import (
     ClimateLogSerializer,
     GreenhouseSerializer,
     IrrigationCycleSerializer,
+    PpeIssueSerializer,
     ZoneSerializer,
 )
 
 
 class GreenhouseViewSet(viewsets.ModelViewSet):
-    queryset = Greenhouse.objects.annotate(zone_count=Count("zones")).all()
+    # has_open_ppe_issue 与轮灌拦截、开放核对共用 PpeIssue.open_issues() 判定
+    queryset = (
+        Greenhouse.objects.annotate(
+            zone_count=Count("zones"),
+            has_open_ppe_issue=Exists(
+                PpeIssue.open_issues().filter(greenhouse=OuterRef("pk"))
+            ),
+        )
+        .order_by("id")
+        .all()
+    )
     serializer_class = GreenhouseSerializer
 
 
@@ -58,6 +69,40 @@ class IrrigationCycleViewSet(viewsets.ModelViewSet):
         if status:
             qs = qs.filter(status=status)
         return qs
+
+
+class PpeIssueViewSet(viewsets.ModelViewSet):
+    serializer_class = PpeIssueSerializer
+
+    def get_queryset(self):
+        qs = PpeIssue.objects.select_related("greenhouse").all()
+        greenhouse_id = self.request.query_params.get("greenhouseId")
+        status = self.request.query_params.get("status")
+        work_date = self.request.query_params.get("workDate")
+        if greenhouse_id:
+            qs = qs.filter(greenhouse_id=greenhouse_id)
+        if status:
+            qs = qs.filter(status=status)
+        if work_date:
+            qs = qs.filter(work_date=work_date)
+        return qs
+
+    @action(detail=False, methods=["get"], url_path="open-check")
+    def open_check(self, request):
+        # 开放核对：与温室列表 hasOpenPpeIssue、轮灌拦截共用同一判定
+        open_qs = PpeIssue.open_issues()
+        greenhouse_ids = list(
+            open_qs.values_list("greenhouse_id", flat=True)
+            .distinct()
+            .order_by("greenhouse_id")
+        )
+        return Response(
+            {
+                "openIssueCount": open_qs.count(),
+                "openGreenhouseCount": len(greenhouse_ids),
+                "greenhouseIds": greenhouse_ids,
+            }
+        )
 
 
 @api_view(["GET"])
